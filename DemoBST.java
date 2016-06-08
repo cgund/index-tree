@@ -1,15 +1,17 @@
+package tree;
 
 import java.io.BufferedReader;
-import java.io.File;
 import java.io.FileNotFoundException;
-import java.io.FileReader;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.util.ArrayList;
+import java.util.Enumeration;
 import java.util.List;
+import java.util.NoSuchElementException;
 import java.util.Scanner;
-import java.util.stream.Collectors;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
 import javafx.application.Application;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -38,57 +40,93 @@ public class DemoBST extends Application
     {
         BorderPane root = new BorderPane();
         
-        root.setCenter(createDisplayPane(collectFiles("txt_files")));
-        root.setBottom(createButtonPane(primaryStage));
+        try
+        {
+            JarFile jar = new JarFile("IndexTree.jar");
+            root.setCenter(createDisplayPane(collectResources(jar)));
+            root.setBottom(createButtonPane(primaryStage));
+        }
+        catch(NoSuchElementException | IOException ex)
+        {
+            displayAlert(ex.getMessage());
+        }
         
-        Scene scene = new Scene(root, 600, 400);
+        Scene scene = new Scene(root, 700, 400);
         primaryStage.setScene(scene);
         primaryStage.setTitle("Text File Search");
         primaryStage.show();
     }
     
     /*
-    Collects all files in a folder while excluding directories.  Returns
-    List bound to File
+    Collects all resources in JarFile while excluding directories.  Returns
+    List bound to String
     */
-    private List<File> collectFiles(String folder)
+    private List<String> collectResources(JarFile jar)
     {
-        try
+        if (jar != null)
         {
-            List<File> textFiles = Files.walk(Paths.get(folder)) 
-                 .filter(Files::isRegularFile)
-                 .map(Path::toFile)
-                 .collect(Collectors.toList());   
-            return textFiles;
+            Enumeration<JarEntry> entries = jar.entries();
+            List<String> resourcePaths = new ArrayList<>();
+            while (entries.hasMoreElements())
+            {
+                JarEntry entry = entries.nextElement();
+                String resourcePath = entry.getName();
+                String fileType = resourcePath.substring(resourcePath.length() - 3, resourcePath.length());
+                if (fileType.equals("txt"))
+                {
+                    resourcePaths.add(resourcePath);
+                    System.out.println(resourcePath);
+                }
+            }
+            return resourcePaths;            
         }
-        catch(IOException ex)
-        {
-            displayAlert(ex.getMessage());
+        else{
+            throw new NoSuchElementException();
         }
-        return null;
     }
     
-    private Node createDisplayPane(List<File> textFiles)
+    /*
+    Iterates through a collection of resource paths, trims them, and passes the
+    trimmed path to a method that is called when the hyperlink is clicked
+    */
+    private Node createDisplayPane(List<String> resourcePaths)
     {
-        TreeItem rootItem = new TreeItem("Files"); //root of TreeView
+        TreeItem rootItem = new TreeItem("Text Files"); //root of TreeView
         rootItem.setExpanded(true);
-        for (File textFile : textFiles)
+        for (String resourcePath : resourcePaths)
         {
-            Hyperlink hlFile = new Hyperlink();
-            hlFile.setText(textFile.getName());
-            hlFile.setOnAction(e ->
+            int indexSlash = resourcePath.indexOf("/");
+            String trimmedPath = resourcePath.substring(indexSlash + 1, resourcePath.length());
+            indexSlash = trimmedPath.indexOf("/");
+            String name = trimmedPath.substring(indexSlash + 1, trimmedPath.length());
+            Hyperlink hlResource = new Hyperlink();
+            hlResource.setText(name);
+            hlResource.setOnAction(e ->
             {
                 textArea.clear();
                 try
                 {
-                    processFile(textFile);
+                    showWordCount(trimmedPath);
                 }
                 catch(FileNotFoundException ex)
                 {
                     displayAlert(ex.getMessage());
                 }
-            }); 
-            TreeItem file = new TreeItem(hlFile);
+            });
+            
+            Hyperlink hlFull = new Hyperlink();
+            hlFull.setText("[Full Text]");
+            hlFull.setOnAction(e ->
+            {
+                textArea.clear();
+                showFullText(trimmedPath);
+            });
+            
+            HBox hb = new HBox(10);
+            hb.setAlignment(Pos.CENTER_LEFT);
+            hb.getChildren().addAll(hlResource, hlFull);
+            
+            TreeItem file = new TreeItem(hb);
             rootItem.getChildren().add(file); //adds node to root
         }
         TreeView treeView = new TreeView(rootItem);
@@ -102,25 +140,41 @@ public class DemoBST extends Application
         return hbDisplay;
     }
     
-    private void displayAlert(String message)
+    /*
+    Displays full text of txt document
+    */
+    private void showFullText(String resource)
     {
-        Alert alert = new Alert(Alert.AlertType.ERROR);
-        alert.setTitle("Error");
-        alert.setHeaderText(null);
-        alert.setContentText(message);
-        alert.show();        
+        InputStream inStream = DemoBST.class.getResourceAsStream(resource);
+        StringBuilder sb = new StringBuilder();
+        Scanner scanner = new Scanner(new BufferedReader(new InputStreamReader(inStream))); 
+        while (scanner.hasNext())
+        {
+            sb.append(scanner.nextLine());
+            sb.append("\n");
+        }
+        scanner.close();
+        textArea.appendText(sb.toString());        
     }
     
-    private void processFile(File file) throws FileNotFoundException
+    /*
+    Creates a new BinaryIndexSearchTree.  Creates a new InputStream of the 
+    resource. Uses a BufferedReader to scan the stream.  Adds word and the line
+    number it occured on to tree.  Calls the toString() method on the tree and
+    appends the return value to the TextArea
+    */
+    private void showWordCount(String resource) throws FileNotFoundException
     {
         textArea.setText("WORD,  # OF OCCURENCES,  [LINE NUMBERS]\n\n");
         BinaryIndexSearchTree<String> bst = new BinaryIndexSearchTree<>();
         int lineNum = 1;
-        try (Scanner scanner = new Scanner(new BufferedReader(new FileReader(file)))) 
+        InputStream inStream = DemoBST.class.getResourceAsStream(resource);
+
+        try (BufferedReader scanner = new BufferedReader(new InputStreamReader(inStream))) 
         {
-            while (scanner.hasNextLine())
+            String line = scanner.readLine();
+            while (line != null)
             {
-                String line = scanner.nextLine();
                 String[] words = line.split(" ");
                 for (String word: words)
                 {
@@ -135,7 +189,12 @@ public class DemoBST extends Application
                     }
                 }
                 lineNum++;
+                line = scanner.readLine();
             }
+        }
+        catch (IOException ex)
+        {
+            ex.printStackTrace();
         }
         textArea.appendText(bst.toString());
     }
@@ -153,6 +212,16 @@ public class DemoBST extends Application
         hbButton.setPadding(DEFAULT_INSETS);
         hbButton.getChildren().add(btnClose); 
         return hbButton;
+    }
+    
+        
+    private void displayAlert(String message)
+    {
+        Alert alert = new Alert(Alert.AlertType.ERROR);
+        alert.setTitle("Error");
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+        alert.show();        
     }
     
     public static void main(String[] args)

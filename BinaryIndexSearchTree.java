@@ -1,3 +1,4 @@
+package tree;
 
 /*
 Class to allow data to be added to BinaryIndexTree.
